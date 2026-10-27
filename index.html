@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Vertigo &amp; Dizzy</title>
-<meta name="description" content="同じ色を4つつなげると消える。1つ置くたびに盤面がくるっと回る、リソグラフ風のパズル。">
+<meta name="description" content="回転性めまい 浮動性めまい">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=DotGothic16&family=Inter:wght@300;500&family=Press+Start+2P&family=Zen+Maru+Gothic:wght@500;700&display=swap" rel="stylesheet">
@@ -121,7 +121,8 @@
   canvas#game { display: block; width: 100%; touch-action: none; }
   .controls {
     width: var(--frame, 100%); max-width: 100%;
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    /* 左手で移動（◀ ▶）、右手で落下と回転（▼ ⟳）。2つのグループの間はすき間をあける */
+    display: grid; grid-template-columns: 1fr 1fr 14px 1fr 1.3fr; gap: 10px;
     padding: 10px 0 14px;
   }
   .controls button {
@@ -131,6 +132,9 @@
     display: flex; align-items: center; justify-content: center;
   }
   .controls button svg { width: 26px; height: 26px; display: block; pointer-events: none; }
+  .controls button[data-act="drop"] { grid-column: 4; }
+  .controls button[data-act="rotate"] { grid-column: 5; }
+  .controls button[data-act="rotate"] svg { width: 32px; height: 32px; }
   .controls button:active, .controls button.on { background: var(--yellow); }
   .hint { width: var(--frame, 100%); max-width: 100%; margin: 0 0 16px; font-size: 13px; font-weight: 700; text-align: center; line-height: 1.7; }
   .hint kbd { font-family: var(--body); border: 1.5px solid var(--blue); border-radius: 6px; padding: 0 6px; margin: 0 2px; }
@@ -182,6 +186,53 @@
   }
   .btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
   .btns button { margin-top: 12px !important; }
+  /* ================= ボタンのリソ感 =================
+     枠線とマークにはインクのかすれ。ボタンの地は網点を少しずらして刷る（版ズレ） */
+  :root { --btn-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='110' height='110'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='23'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -9 6.4'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+  :root { --btn-grain-soft: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='110' height='110'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='29'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -15 11.6'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }   /* ベタ用：かすれを弱く */
+  .controls button, .sound {
+    position: relative; isolation: isolate; border: 0 !important; background: transparent !important;
+  }
+  .controls button::before, .sound::before {             /* かすれた枠線 */
+    content: ""; position: absolute; inset: 0; border: 2.5px solid var(--blue); border-radius: inherit;
+    -webkit-mask-image: var(--btn-grain); mask-image: var(--btn-grain);
+    -webkit-mask-size: 110px; mask-size: 110px;
+  }
+  .controls button::after, .sound::after {               /* 少しずれたイエローの網点 */
+    content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1;
+    background: radial-gradient(circle, rgba(255, 232, 0, 0.95) 1.05px, transparent 1.5px) 0 0 / 4px 4px;
+    transform: translate(3px, 3px);
+    transition: transform 0.06s;
+  }
+  .controls button svg {                                  /* マーク：かすれ＋オレンジの版のずれ */
+    filter: drop-shadow(1.5px 1.5px 0 rgba(255, 113, 64, 0.85));
+    -webkit-mask-image: var(--btn-grain); mask-image: var(--btn-grain);
+    -webkit-mask-size: 110px; mask-size: 110px;
+  }
+  /* 押したとき：網点がピンクに変わって、ずれがぴたっと合う */
+  .controls button:active::after, .controls button.on::after, .sound:active::after {
+    background: radial-gradient(circle, rgba(255, 72, 176, 0.9) 1.25px, transparent 1.7px) 0 0 / 4px 4px;
+    transform: translate(0, 0);
+  }
+  .controls button:active, .controls button.on { transform: translate(1px, 1px); }
+  .sound::after { transform: translate(2px, 2px); }
+  .sound[aria-pressed="false"]::after { background: none; }
+
+  /* 「はじめる」「もう一度」：かすれたブルーのベタ＋うしろにずれたピンクの網点 */
+  .overlay button { position: relative; isolation: isolate; background: transparent !important; }
+  .overlay button::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1; background: var(--blue);
+    -webkit-mask-image: var(--btn-grain-soft); mask-image: var(--btn-grain-soft);
+    -webkit-mask-size: 110px; mask-size: 110px;
+  }
+  .overlay button::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -2;
+    background: radial-gradient(circle, rgba(255, 72, 176, 0.9) 1.15px, transparent 1.6px) 0 0 / 4px 4px;
+    transform: translate(4px, 4px);
+  }
+  .overlay button:active { transform: translate(2px, 2px); }
+  .overlay button:active::after { transform: translate(1px, 1px); }
+
   :focus-visible { outline: 3px solid var(--pink); outline-offset: 3px; }
 </style>
 </head>
@@ -249,9 +300,9 @@
 
 <div class="controls">
   <button data-act="left" aria-label="左へ動かす"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12 L18 4.5 V19.5 Z" fill="currentColor"/></svg></button>
-  <button data-act="rotate" aria-label="回す"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.4 8.2 A7.6 7.6 0 1 0 19.6 13.6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M21.4 3.4 L20.2 10.6 L13.4 8.4 Z" fill="currentColor"/></svg></button>
-  <button data-act="drop" aria-label="一気に落とす"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19 L4.5 6 H19.5 Z" fill="currentColor"/></svg></button>
   <button data-act="right" aria-label="右へ動かす"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12 L6 4.5 V19.5 Z" fill="currentColor"/></svg></button>
+  <button data-act="drop" aria-label="一気に落とす"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19 L4.5 6 H19.5 Z" fill="currentColor"/></svg></button>
+  <button data-act="rotate" aria-label="回す"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.4 8.2 A7.6 7.6 0 1 0 19.6 13.6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M21.4 3.4 L20.2 10.6 L13.4 8.4 Z" fill="currentColor"/></svg></button>
 </div>
 <p class="hint"><kbd>←</kbd><kbd>→</kbd> 動かす　<kbd>↑</kbd> 回す　<kbd>↓</kbd> 少し落とす　<kbd>Space</kbd> 一気に落とす　<kbd>P</kbd> ひとやすみ</p>
 
@@ -276,6 +327,10 @@
   const CLEAR_DUR = 520;              // ブロックが消えるまでの時間（にこっと笑う → ふくらむ → ぽんっと弾ける）
   const POP_AT = 0.82;                // CLEAR_DUR のうち、弾ける瞬間（0〜1）
   const STAIN_DUR = 2600;             // 消えたあとに残る、インクのしみの時間
+  const PRINT_FIRST = 6;              // 刷り出し：はじめて起きる手
+  const PRINT_EVERY = 7;              // 刷り出し：そのあと何手ごとに起きるか
+  const PRINT_COLS = 4;               // 刷り出し：画面の真ん中の何列に刷り込むか
+  const PRINT_DUR = 900;              // 刷り出し：ローラーが降りて戻るまでの時間（ミリ秒）
   const CAN_MAX = 12;                 // インク缶がいっぱいになるまでに消すブロックの数（色ごと）
   const FEVER_DUR = 10000;            // 4つの缶がそろったあとの、得点2倍の時間（ミリ秒）
   const COLOR_NAME = ["ブルー", "オレンジ", "イエロー", "ピンク"];
@@ -411,6 +466,11 @@
       },
       stamp() { noise(0.09, { vol: 0.25, freq: 300, q: 1.5, delay: 0.02 }); tone(110, 0.12, { type: "sine", vol: 0.25, to: 70, delay: 0.02 }); },
       turn() { noise(0.32, { vol: 0.08, freq: 400, q: 0.6, sweep: 2400 }); },
+      print() {                                                              // ガシャン（ローラーが紙に当たる）
+        noise(0.05, { vol: 0.3, freq: 1800, q: 0.9 });
+        noise(0.22, { vol: 0.28, freq: 260, q: 1.4, delay: 0.02 });
+        tone(95, 0.2, { type: "sine", vol: 0.3, to: 55, delay: 0.02 });
+      },
       special(sp) {
         if (sp === "V") tone(330, 0.4, { type: "sawtooth", vol: 0.06, to: 1320 });   // 渦のように上がる
         else for (let i = 0; i < 4; i++) tone(i % 2 ? 494 : 440, 0.09, { type: "square", vol: 0.05, delay: i * 0.08 });   // ゆらぐ
@@ -774,6 +834,8 @@
   const MISREG_MAX = 3.5;             // 連鎖のときに版ズレが大きくなる上限（ピクセル）
   let score = 0, best = 0, cleared = 0;
   let maxChain = 0, missionsDone = 0, turnsPlayed = 0;   // ゲームオーバー画面に出す記録
+  let printDue = false, printPlaced = false;           // 刷り出し
+  const isPrintTurn = (n) => n >= PRINT_FIRST && (n - PRINT_FIRST) % PRINT_EVERY === 0;
   let mission = null, streak = 0, turnCleared = 0;
   let cans = [0, 0, 0, 0], fever = null;
   let angle = 0, angleFrom = 0, angleTo = 0;
@@ -795,7 +857,7 @@
     rnd = seed ? mulberry(seed) : Math.random;
     grid = new Array(N * N).fill(null);
     score = 0; cleared = 0; chain = 0; dir = 0; afterTurn = false;
-    maxChain = 0; missionsDone = 0; turnsPlayed = 0;
+    maxChain = 0; missionsDone = 0; turnsPlayed = 0; printDue = false;
     angle = angleFrom = angleTo = 0;
     fx.particles = []; fx.swirls = []; fx.trails = []; fx.stains = []; fx.chainText = null; settled = true;
     fx.pops = []; fx.drops = []; fx.confetti = [];
@@ -894,6 +956,7 @@
     if (mission.turns <= 0) failMission();
     turnCleared = 0;
     pairBond = null;
+    printDue = isPrintTurn(turnsPlayed);
     dir = (dir + 1) % 4;
     angleFrom = angle;
     angleTo = angleFrom - Math.PI / 2;                 // 1手ごとに90度、くるっと回る
@@ -1037,9 +1100,17 @@
       }
       if (moving) phaseT = 0;
       else if (phaseT >= HOLD_BEFORE_TURN) {
-        if (afterTurn) { afterTurn = false; spawn(); }     // 回ったあとの落下が終わったら、次の2個
+        if (afterTurn) {                                    // 回ったあとの落下が終わったら、次の2個（刷り出しの手なら、先に刷り出し）
+          afterTurn = false;
+          if (printDue) { printDue = false; printPlaced = false; phase = "print"; phaseT = 0; }
+          else spawn();
+        }
         else finishTurn();
       }
+    } else if (phase === "print") {
+      // 刷り出し：ローラーが降りてきて（半分の時点で刷り込む）、上へ戻る
+      if (!printPlaced && phaseT >= PRINT_DUR * 0.42) { printPlaced = true; printRow(); }
+      if (phaseT >= PRINT_DUR) { afterTurn = true; chain = 0; settled = false; driftDone = true; phase = "settle"; phaseT = 0; }
     } else if (phase === "rotate") {
       const dur = reduceMotion ? 1 : 340;
       const u = Math.min(1, phaseT / dur);
@@ -1053,24 +1124,24 @@
 
   // ================= お題 =================
   function newMission() {
+    // 今の重力（上半分だけが下に落ちる）では連鎖が起きにくいので、それに合わせた内容と期限にしている
     const r = rnd();
     let m;
     if (r < 0.4) {
-      const c = Math.floor(rnd() * 4), n = 6 + 2 * Math.floor(rnd() * 3);
-      m = { type: "color", c, n, label: `${COLOR_NAME[c]}を${n}個消す` };
-    } else if (r < 0.6) {
-      const k = rnd() < 0.7 ? 2 : 3;
-      m = { type: "chain", k, n: 1, label: `${k}れんさを出す` };
-    } else if (r < 0.72) {
-      m = { type: "special", n: 1, label: "キャラブロックを消す" };
-    } else if (r < 0.86) {
+      const c = Math.floor(rnd() * 4), n = [5, 6, 8][Math.floor(rnd() * 3)];
+      m = { type: "color", c, n, label: `${COLOR_NAME[c]}を${n}個消す`, base: 14 };
+    } else if (r < 0.55) {
+      m = { type: "chain", k: 2, n: 1, label: "2れんさを出す", base: 22 };
+    } else if (r < 0.7) {
+      m = { type: "special", n: 1, label: "キャラブロックを消す", base: 20 };
+    } else if (r < 0.85) {
       const n = rnd() < 0.6 ? 6 : 8;
-      m = { type: "big", n, label: `1回で${n}個以上消す` };
+      m = { type: "big", n, label: `1回で${n}個以上消す`, base: 18 };
     } else {
-      m = { type: "group5", n: 1, label: "5個以上つなげて消す" };
+      m = { type: "group5", n: 1, label: "5個以上つなげて消す", base: 14 };
     }
     m.prog = 0;
-    m.turns = (m.type === "special" ? 20 : 14) + Math.floor(rnd() * 3) * 2;   // お題の期限（手数）
+    m.turns = m.base + Math.floor(rnd() * 3) * 2;      // お題の期限（手数）
     return m;
   }
 
@@ -1153,6 +1224,20 @@
       x0: px, y0: py, c, t: 0, delay: 40 + Math.random() * 80, dur: 300 + len / CS * 22,
       cx: (px + BX) / 2 - dy / len * bend, cy: (py + BY) / 2 + dx / len * bend,
     });
+  }
+
+  // 刷り出し：画面の上から2段目の、真ん中の PRINT_COLS 列に、ブロックを1列刷り込む（空いているマスだけ）
+  function printRow() {
+    const x0 = HALF - PRINT_COLS / 2;
+    for (let sx = x0; sx < x0 + PRINT_COLS; sx++) {
+      const [x, y] = toBoard(sx, 1);
+      if (!open(x, y)) continue;
+      const b = newBlock();
+      put(x, y, { id: uid++, c: b.c, sp: b.sp, rx: x, ry: y - 0.0001, die: 0, flash: 1 });
+    }
+    fx.shake = Math.max(fx.shake, 0.7);
+    fx.misreg = Math.max(fx.misreg, 2.5);
+    Sound.print();
   }
 
   // 4連鎖以上：4色の網点の紙吹雪
@@ -1271,6 +1356,50 @@
     L.quadraticCurveTo(0.035 * s, 0.08 * s, 0.07 * s, 0.14 * s);
     L.stroke();
     L.restore();
+  }
+
+  // 刷り出しのインクローラー：1手前から盤面の上のふちでゆらゆら（予告）→ 降りてきて刷り込み → 上へ戻る。
+  // 予告のあいだは、落ちてくる2個を隠さないよう、ブロックのうしろに描く（behind = true のときだけ描く）
+  function drawPrintRoller(behind) {
+    const top = BY - N / 2 * CS;
+    const warn = (phase === "fall" && isPrintTurn(turnsPlayed + 1)) || printDue && ["match", "clear", "settle", "hold", "rotate"].includes(phase);
+    let ry = null, swing = 0;
+    if (phase === "print") {
+      if (behind) return;
+      const u = phaseT / PRINT_DUR;
+      const peek = top + 0.25 * CS, low = top + 1.5 * CS;
+      if (u < 0.42) ry = peek + (low - peek) * Math.pow(u / 0.42, 2.2);          // ぐんと速く降りる
+      else if (u < 0.55) ry = low;                                               // 紙に押しつける
+      else ry = low - (low - (top - 2 * CS)) * Math.pow((u - 0.55) / 0.45, 1.6); // 上へ戻って消える
+    } else if (warn) {
+      if (!behind) return;
+      ry = top + 0.25 * CS + Math.sin(tNow * 0.006) * 0.08 * CS;
+      swing = Math.sin(tNow * 0.004) * 0.06;
+    }
+    if (ry !== null) drawRoller(BX, ry, (PRINT_COLS + 1) * CS, 1.05 * CS, swing);
+  }
+
+  // インクローラー（ブルーの線と持ち手・イエローの網点の胴・下側にピンクのインク）
+  function drawRoller(cx, cy, w, h, swing) {
+    const r = h / 2;
+    const BL2 = layers[BLUE].x, YL2 = layers[YELLOW].x, PL2 = layers[PINK].x;
+    for (const L of [BL2, YL2, PL2]) { L.save(); L.translate(cx, cy); L.rotate(swing); }
+    // 胴の下は、下に刷ってあるインクを抜く
+    for (const l of layers) { l.x.save(); l.x.translate(cx, cy); l.x.rotate(swing); l.x.globalCompositeOperation = "destination-out"; roundRect(l.x, -w / 2, -r, w, h, r); l.x.fill(); l.x.restore(); }
+    YL2.fillStyle = dots(YL2, YELLOW, 0.7);
+    roundRect(YL2, -w / 2, -r, w, h, r); YL2.fill();
+    PL2.fillStyle = dots(PL2, PINK, 0.8);
+    PL2.beginPath(); PL2.rect(-w / 2 + r * 0.5, r * 0.15, w - r, r * 0.75); PL2.fill();
+    BL2.strokeStyle = INK[BLUE]; BL2.lineWidth = 0.09 * CS; BL2.lineCap = "round"; BL2.lineJoin = "round";
+    roundRect(BL2, -w / 2, -r, w, h, r); BL2.stroke();
+    BL2.globalAlpha = 0.4;
+    for (let k = -2; k <= 2; k++) { BL2.beginPath(); BL2.moveTo(k * w / 6, -r + 0.15 * h); BL2.lineTo(k * w / 6, r - 0.15 * h); BL2.stroke(); }
+    BL2.globalAlpha = 1;
+    BL2.beginPath();                                       // 持ち手
+    BL2.moveTo(-w / 2 - 0.15 * CS, 0); BL2.lineTo(-w / 2 - 0.15 * CS, -h * 1.5); BL2.lineTo(w / 2 + 0.15 * CS, -h * 1.5); BL2.lineTo(w / 2 + 0.15 * CS, 0);
+    BL2.stroke();
+    BL2.beginPath(); BL2.moveTo(0, -h * 1.5); BL2.lineTo(0, -h * 3); BL2.stroke();
+    for (const L of [BL2, YL2, PL2]) L.restore();
   }
 
   // まんなかの2匹（Blender の3Dの2匹を、ブロックと同じ版で刷る）
@@ -1396,6 +1525,9 @@
       L.restore();
     }
 
+    // 刷り出しの予告のローラー（ブロックのうしろ）
+    drawPrintRoller(true);
+
     // 積もっているブロック
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
       const b = at(x, y);
@@ -1424,6 +1556,9 @@
         drawBlock(px, py, c.b);
       }
     }
+
+    // 刷り出しのローラー（降りてくるときは、ブロックより手前）
+    drawPrintRoller(false);
 
     // まんなかの2匹
     const danger = (() => {
