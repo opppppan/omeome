@@ -128,7 +128,9 @@
     font-family: var(--display); font-size: 22px; color: var(--blue);
     background: transparent; border: 2.5px solid var(--blue); border-radius: 16px;
     height: 58px; cursor: pointer; touch-action: none;
+    display: flex; align-items: center; justify-content: center;
   }
+  .controls button svg { width: 26px; height: 26px; display: block; pointer-events: none; }
   .controls button:active, .controls button.on { background: var(--yellow); }
   .hint { width: var(--frame, 100%); max-width: 100%; margin: 0 0 16px; font-size: 13px; font-weight: 700; text-align: center; line-height: 1.7; }
   .hint kbd { font-family: var(--body); border: 1.5px solid var(--blue); border-radius: 6px; padding: 0 6px; margin: 0 2px; }
@@ -246,10 +248,10 @@
 </div>
 
 <div class="controls">
-  <button data-act="left" aria-label="左へ動かす">◀</button>
-  <button data-act="rotate" aria-label="回す">⟳</button>
-  <button data-act="drop" aria-label="一気に落とす">▼</button>
-  <button data-act="right" aria-label="右へ動かす">▶</button>
+  <button data-act="left" aria-label="左へ動かす"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12 L18 4.5 V19.5 Z" fill="currentColor"/></svg></button>
+  <button data-act="rotate" aria-label="回す"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.4 8.2 A7.6 7.6 0 1 0 19.6 13.6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M21.4 3.4 L20.2 10.6 L13.4 8.4 Z" fill="currentColor"/></svg></button>
+  <button data-act="drop" aria-label="一気に落とす"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19 L4.5 6 H19.5 Z" fill="currentColor"/></svg></button>
+  <button data-act="right" aria-label="右へ動かす"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12 L6 4.5 V19.5 Z" fill="currentColor"/></svg></button>
 </div>
 <p class="hint"><kbd>←</kbd><kbd>→</kbd> 動かす　<kbd>↑</kbd> 回す　<kbd>↓</kbd> 少し落とす　<kbd>Space</kbd> 一気に落とす　<kbd>P</kbd> ひとやすみ</p>
 
@@ -271,7 +273,8 @@
   const SPECIAL_RATE = 0.15;          // ブルー・オレンジのブロックが、キャラブロックになる確率
   const LOCK_DELAY = 320;             // 着地してから固まるまで（ミリ秒）
   const CHAIN_MUL = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64];
-  const CLEAR_DUR = 380;              // ブロックが消えるまでの時間（つぶれる → 網点にほどける）
+  const CLEAR_DUR = 520;              // ブロックが消えるまでの時間（にこっと笑う → ふくらむ → ぽんっと弾ける）
+  const POP_AT = 0.82;                // CLEAR_DUR のうち、弾ける瞬間（0〜1）
   const STAIN_DUR = 2600;             // 消えたあとに残る、インクのしみの時間
   const CAN_MAX = 12;                 // インク缶がいっぱいになるまでに消すブロックの数（色ごと）
   const FEVER_DUR = 10000;            // 4つの缶がそろったあとの、得点2倍の時間（ミリ秒）
@@ -432,7 +435,8 @@
 
   // ================= 画面の大きさ・紙と粒の質感 =================
   let W = 0, H = 0, DPR = 1, CS = 0, BX = 0, BY = 0, TOP = 0;
-  let paperTex = null, grains = [];
+  let paperTex = null, grains = [], roughGrain = null;
+  const bubble = { b: null, o: null };     // 連鎖の吹き出しを描く下書き（ブルーの版・オレンジの版）
   const dotCache = new Map();
 
   function resize() {
@@ -459,6 +463,8 @@
     root.setProperty("--fb", ((H - BY - half) / DPR) + "px");
     paperTex = makePaper(W, H);
     grains = INK.map((_, i) => makeGrain(Math.round(220 * DPR), 31 + i));
+    roughGrain = makeGrain(Math.round(160 * DPR), 77, true);
+    for (const k of ["b", "o"]) { bubble[k] = document.createElement("canvas"); bubble[k].width = W; bubble[k].height = H; }
     dotCache.clear();
   }
 
@@ -478,8 +484,8 @@
     return c;
   }
 
-  // インクの粒（ところどころ、インクがかすれて紙が見える）
-  function makeGrain(size, seed) {
+  // インクの粒（ところどころ、インクがかすれて紙が見える）。strong にすると、かすれが強い
+  function makeGrain(size, seed, strong = false) {
     const c = document.createElement("canvas");
     c.width = c.height = size;
     const x = c.getContext("2d");
@@ -488,7 +494,7 @@
     for (let i = 0; i < d.length; i += 4) {
       const v = r();
       d[i] = d[i + 1] = d[i + 2] = 0;
-      d[i + 3] = v < 0.1 ? 70 : v < 0.18 ? 170 : 255;
+      d[i + 3] = strong ? (v < 0.24 ? 0 : v < 0.36 ? 110 : 255) : (v < 0.1 ? 70 : v < 0.18 ? 170 : 255);
     }
     x.putImageData(img, 0, 0);
     return c;
@@ -773,7 +779,8 @@
   let angle = 0, angleFrom = 0, angleTo = 0;
   let viewA = 0;                      // 描くときの盤面の角度（4連鎖の「めまい」の傾きをふくむ）
   let pendingEffects = [];
-  const fx = { misreg: 0, shake: 0, chainText: null, particles: [], swirls: [], trails: [], stains: [], stagePulse: 0, wobble: null, sweep: null };
+  const fx = { misreg: 0, shake: 0, chainText: null, particles: [], swirls: [], trails: [], stains: [], stagePulse: 0, wobble: null, sweep: null,
+    pops: [], drops: [], confetti: [] };
   const mood = { V: { happy: 0, jump: 0 }, D: { happy: 0, jump: 0 } };
   let tNow = 0, boilT = 0;
   let regs = INK.map(() => [0, 0]);
@@ -791,6 +798,7 @@
     maxChain = 0; missionsDone = 0; turnsPlayed = 0;
     angle = angleFrom = angleTo = 0;
     fx.particles = []; fx.swirls = []; fx.trails = []; fx.stains = []; fx.chainText = null; settled = true;
+    fx.pops = []; fx.drops = []; fx.confetti = [];
     fx.stagePulse = 0; fx.wobble = null; fx.sweep = null;
     nextPair = newPair();
     mission = newMission(); streak = 0; turnCleared = 0;
@@ -900,8 +908,18 @@
     fx.misreg = Math.max(0, fx.misreg - dt * 0.006);
     fx.shake = Math.max(0, fx.shake - dt * 0.02);
     if (fx.chainText) { fx.chainText.t += dt; if (fx.chainText.t > 1300) fx.chainText = null; }
-    fx.particles = fx.particles.filter((p) => (p.life -= dt) > 0);
-    for (const p of fx.particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 0.0012 * DPR * dt; }
+    // 星と音符：ふわっと舞い上がって、ゆっくり止まる
+    fx.particles = fx.particles.filter((p) => (p.t += dt) < p.life);
+    for (const p of fx.particles) {
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.vx *= Math.pow(0.996, dt); p.vy *= Math.pow(0.997, dt);
+      p.rot += p.vr * dt;
+    }
+    fx.pops = fx.pops.filter((p) => (p.t += dt) < 260);
+    fx.drops = fx.drops.filter((d) => (d.t += dt) < d.delay + d.dur);
+    // 紙吹雪：ゆれて回りながら、ひらひら落ちる
+    fx.confetti = fx.confetti.filter((c) => (c.t += dt) < c.life && c.y < H + CS);
+    for (const c of fx.confetti) { c.y += c.vy * dt; c.x += Math.sin(c.t * c.sw + c.ph) * 0.03 * DPR * dt; c.rot += c.vr * dt; }
     fx.swirls = fx.swirls.filter((s) => (s.t += dt) < 600);
     fx.trails = fx.trails.filter((s) => (s.t += dt) < 420);
     fx.stains = fx.stains.filter((s) => (s.t += dt) < STAIN_DUR);
@@ -991,10 +1009,14 @@
       phaseT = 0;
     } else if (phase === "clear") {
       for (let i = 0; i < N * N; i++) if (grid[i] && grid[i].die) grid[i].die = Math.min(1, phaseT / CLEAR_DUR);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const b = at(x, y);
+        if (b && b.die >= POP_AT && !b.popped) { b.popped = true; popFx(x, y, b.c); }
+      }
       if (phaseT >= CLEAR_DUR) {
         for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
           const b = at(x, y);
-          if (b && b.die) { burst(x, y, b.c); fx.stains.push({ x, y, c: b.c, t: 0 }); put(x, y, null); }
+          if (b && b.die) { if (!b.popped) popFx(x, y, b.c); fx.stains.push({ x, y, c: b.c, t: 0 }); put(x, y, null); }
         }
         for (const e of pendingEffects) {
           if (e.sp === "V") vortex(e.x, e.y); else dizzySwap(e.x, e.y);
@@ -1106,19 +1128,42 @@
     if (n >= 3) { fx.stagePulse = 1; mood.V.jump = mood.D.jump = 1; mood.V.happy = mood.D.happy = 1400; }
     // 4連鎖：盤面がめまいのようにゆらっと傾く
     if (n >= 4 && !reduceMotion) fx.wobble = { t: 0, amp: Math.min(0.035, 0.018 + 0.006 * (n - 4)) };
+    if (n >= 4) confettiFx();
     // 5連鎖〜：印刷機のドラムが回るように、ピンクの帯が走って全体が刷り変わる
     if (n >= 5 && !reduceMotion) fx.sweep = { t: 0 };
   }
 
   const easeOutBack = (t) => { const c1 = 0.6, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
 
-  // 消えたブロックから、インクが飛び散る
-  function burst(x, y, c) {
+  // ぽんっと弾けた瞬間：インクの輪、舞い上がる星と音符、2匹へ飛んでいくしずく
+  function popFx(x, y, c) {
     const [px, py] = boardToScreen(x + 0.5, y + 0.5);
-    const n = reduceMotion ? 2 : 4;
-    for (let i = 0; i < n; i++) {
-      const a = rnd() * Math.PI * 2, s = (0.05 + rnd() * 0.18) * DPR;
-      fx.particles.push({ x: px, y: py, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 0.08 * DPR, r: (0.06 + rnd() * 0.1) * CS, c, life: 380 + rnd() * 260 });
+    fx.pops.push({ x: px, y: py, c, t: 0 });
+    for (let i = 0; i < 2; i++) {
+      fx.particles.push({
+        x: px, y: py, c, kind: (x + y + i) % 2 ? "star" : "note",
+        vx: (i ? 1 : -1) * (0.04 + Math.random() * 0.06) * DPR, vy: -(0.12 + Math.random() * 0.06) * DPR,
+        rot: (Math.random() - 0.5) * 0.6, vr: (Math.random() - 0.5) * 0.004,
+        size: (0.4 + Math.random() * 0.12) * CS, t: 0, life: 800 + Math.random() * 300,
+      });
+    }
+    const dx = BX - px, dy = BY - py, len = Math.hypot(dx, dy) || 1;
+    const bend = (Math.random() < 0.5 ? -1 : 1) * (0.18 + Math.random() * 0.12) * len;   // ゆるいカーブ
+    fx.drops.push({
+      x0: px, y0: py, c, t: 0, delay: 40 + Math.random() * 80, dur: 300 + len / CS * 22,
+      cx: (px + BX) / 2 - dy / len * bend, cy: (py + BY) / 2 + dx / len * bend,
+    });
+  }
+
+  // 4連鎖以上：4色の網点の紙吹雪
+  function confettiFx() {
+    for (let i = 0; i < 48; i++) {
+      fx.confetti.push({
+        x: Math.random() * W, y: -Math.random() * H * 0.7 - CS, c: Math.floor(Math.random() * 4),
+        vy: (0.08 + Math.random() * 0.06) * DPR, sw: 0.002 + Math.random() * 0.003, ph: Math.random() * 6,
+        rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.008,
+        w: (0.5 + Math.random() * 0.25) * CS, h: (0.28 + Math.random() * 0.12) * CS, t: 0, life: 4200,
+      });
     }
   }
 
@@ -1161,7 +1206,7 @@
   }
 
   // ブロック1個（いつも画面に対してまっすぐ立つ顔）
-  function drawBlock(cx, cy, b, scale = 1, alpha = 1, cov = 1, sqx = 1, sqy = 1) {
+  function drawBlock(cx, cy, b, scale = 1, alpha = 1, cov = 1, sqx = 1, sqy = 1, smile = 0) {
     const L = layers[b.c].x;
     const s = CS * scale;
     L.save();
@@ -1188,6 +1233,26 @@
     L.globalCompositeOperation = "destination-out";
     L.strokeStyle = "#000"; L.fillStyle = "#000";
     L.lineCap = "round";
+    if (smile > 0) {
+      // にこっ：目は「＾＾」、口は大きく笑う
+      L.lineWidth = 0.065 * s;
+      for (const ex of [-0.16, 0.16]) {
+        L.beginPath(); L.arc(ex * s, -0.02 * s, 0.085 * s, 1.15 * Math.PI, 1.85 * Math.PI); L.stroke();
+      }
+      L.beginPath(); L.arc(0, 0.1 * s, 0.1 * s, 0, Math.PI); L.closePath(); L.fill();
+      L.globalAlpha = alpha * Math.min(1, smile);
+      for (const ex of [-0.27, 0.27]) { L.beginPath(); L.ellipse(ex * s, 0.12 * s, 0.1 * s, 0.075 * s, 0, 0, Math.PI * 2); L.fill(); }
+      L.restore();
+      // ほっぺ：ピンクの網点（ピンクのブロックはオレンジ）を、ぽっと重ねる
+      const ck = b.c === PINK ? ORANGE : PINK, CL = layers[ck].x;
+      CL.save();
+      CL.globalAlpha = alpha * Math.min(1, smile);
+      CL.translate(cx, cy); CL.rotate(-viewA); CL.scale(sqx, sqy);
+      CL.fillStyle = dots(CL, ck, 0.75);
+      for (const ex of [-0.27, 0.27]) { CL.beginPath(); CL.ellipse(ex * s, 0.12 * s, 0.1 * s, 0.075 * s, 0, 0, Math.PI * 2); CL.fill(); }
+      CL.restore();
+      return;
+    }
     if (b.sp === "V") {
       L.lineWidth = 0.05 * s;
       for (const ex of [-0.16, 0.16]) spiral(L, ex * s, -0.04 * s, 0.12 * s, 2, tNow * 0.006);
@@ -1337,14 +1402,17 @@
       if (!b) continue;
       const [px, py] = boardToScreen(b.rx + 0.5, b.ry + 0.5);
       if (!b.die) { drawBlock(px, py, b); continue; }
-      // 消える：はじめの2割でぎゅっとつぶれ、そのあと網点にほどけながら少し広がって消える
+      // 消える：ぴょんと弾んで、にこっと笑う → ぷくーっとふくらむ → ぽんっと弾ける
       const u = b.die;
-      if (u < 0.2) {
-        const k = Math.sin(Math.PI * u / 0.2);
-        drawBlock(px, py, b, 1, 1, 1, 1 + 0.16 * k, 1 - 0.2 * k);
+      if (u >= POP_AT) continue;                                   // 弾けたあとは描かない（輪だけが残る）
+      if (u < 0.14) {
+        const k = Math.sin(Math.PI * u / 0.14);
+        drawBlock(px, py - 0.12 * CS * k, b, 1, 1, 1, 1 - 0.08 * k, 1 + 0.1 * k, u / 0.14);
+      } else if (u < 0.5) {
+        drawBlock(px, py, b, 1 + 0.03 * Math.sin((u - 0.14) * 30), 1, 1, 1, 1, 1);
       } else {
-        const v = (u - 0.2) / 0.8;
-        drawBlock(px, py, b, 1 + 0.18 * v, 1, 1 - 0.92 * v);
+        const v = (u - 0.5) / (POP_AT - 0.5);
+        drawBlock(px, py, b, 1 + 0.34 * v * v, 1, 1, 1, 1, 1);
       }
     }
 
@@ -1379,11 +1447,78 @@
       L.restore();
     }
 
-    // 飛び散るインク
+    // ぽんっ：弾けたところに広がるインクの輪と、小さな線
+    for (const p of fx.pops) {
+      const L = layers[p.c].x, u = p.t / 260;
+      L.save();
+      L.strokeStyle = INK[p.c];
+      L.globalAlpha = 1 - u;
+      L.lineWidth = (0.12 - 0.08 * u) * CS;
+      L.beginPath(); L.arc(p.x, p.y, (0.42 + 0.38 * u) * CS, 0, Math.PI * 2); L.stroke();
+      L.lineCap = "round";
+      L.lineWidth = 0.06 * CS;
+      for (let i = 0; i < 6; i++) {
+        const a = i * Math.PI / 3 + 0.3, r0 = (0.75 + 0.3 * u) * CS, r1 = r0 + 0.18 * CS * (1 - u);
+        L.beginPath(); L.moveTo(p.x + Math.cos(a) * r0, p.y + Math.sin(a) * r0); L.lineTo(p.x + Math.cos(a) * r1, p.y + Math.sin(a) * r1); L.stroke();
+      }
+      L.restore();
+    }
+
+    // 2匹へ飛んでいくインクのしずく（だんだん速く、近づくと小さくなって吸い込まれる）
+    for (const d of fx.drops) {
+      if (d.t < d.delay) continue;
+      const u = Math.min(1, (d.t - d.delay) / d.dur), e = u * u;
+      const q = (a, b2, c2) => (1 - e) * (1 - e) * a + 2 * (1 - e) * e * b2 + e * e * c2;
+      const x = q(d.x0, d.cx, BX), y = q(d.y0, d.cy, BY);
+      const e2 = Math.min(1, e + 0.04);
+      const nx = (1 - e2) * (1 - e2) * d.x0 + 2 * (1 - e2) * e2 * d.cx + e2 * e2 * BX;
+      const ny = (1 - e2) * (1 - e2) * d.y0 + 2 * (1 - e2) * e2 * d.cy + e2 * e2 * BY;
+      const ang = Math.atan2(ny - y, nx - x), r = 0.19 * CS * (1 - 0.7 * Math.max(0, (u - 0.6) / 0.4));
+      const L = layers[d.c].x;
+      L.save();
+      L.translate(x, y); L.rotate(ang);
+      L.fillStyle = INK[d.c];
+      L.beginPath();
+      L.arc(0, 0, r, -Math.PI / 2, Math.PI / 2);                        // 前は丸く
+      L.quadraticCurveTo(-r * 1.2, r * 0.6, -r * 2.6, 0);              // うしろはしずくの形にとがる
+      L.quadraticCurveTo(-r * 1.2, -r * 0.6, 0, -r);
+      L.fill();
+      L.restore();
+    }
+
+    // 星と音符：ブロックの色の網点で刷ったように、ふわっと舞い上がって消える
     for (const p of fx.particles) {
-      const L = layers[p.c].x;
-      L.fillStyle = INK[p.c];
-      L.beginPath(); L.arc(p.x, p.y, p.r * Math.min(1, p.life / 200), 0, Math.PI * 2); L.fill();
+      const L = layers[p.c].x, sz = p.size;
+      L.save();
+      L.globalAlpha = Math.min(1, (p.life - p.t) / 300);
+      L.translate(p.x, p.y); L.rotate(p.rot);
+      L.fillStyle = dots(L, p.c, 0.9);
+      L.beginPath();
+      if (p.kind === "star") {
+        for (let i = 0; i < 10; i++) {
+          const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? sz * 0.42 : sz;
+          if (i === 0) L.moveTo(Math.cos(a) * r, Math.sin(a) * r); else L.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        L.closePath(); L.fill();
+      } else {
+        L.ellipse(-sz * 0.25, sz * 0.45, sz * 0.36, sz * 0.27, -0.4, 0, Math.PI * 2); L.fill();   // 音符の玉
+        L.fillRect(sz * 0.04, -sz * 0.8, sz * 0.16, sz * 1.25);                                  // 棒
+        L.beginPath(); L.moveTo(sz * 0.2, -sz * 0.8);                                           // 旗
+        L.quadraticCurveTo(sz * 0.75, -sz * 0.5, sz * 0.55, -sz * 0.05);
+        L.quadraticCurveTo(sz * 0.55, -sz * 0.45, sz * 0.2, -sz * 0.4); L.fill();
+      }
+      L.restore();
+    }
+
+    // 紙吹雪：4色の網点で刷った小さな紙が、ひらひら（裏返るように回る）
+    for (const c of fx.confetti) {
+      const L = layers[c.c].x;
+      L.save();
+      L.globalAlpha = Math.min(1, (c.life - c.t) / 500);
+      L.translate(c.x, c.y); L.rotate(c.rot); L.scale(1, Math.cos(c.t * 0.01 + c.ph));
+      L.fillStyle = dots(L, c.c, 0.85);
+      L.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+      L.restore();
     }
 
     // 上の帯 1段目：レベル・4色のインク缶・つぎのブロック
@@ -1500,29 +1635,62 @@
       }
     }
 
-    // 連鎖の文字：ゴム印のように、少し傾いてポンと押される（ブルーとオレンジの版がずれて重なる）
-    if (fx.chainText) {
+    // 連鎖の文字：紙の色の吹き出しをブルーの線で囲み、文字がぴょんぴょん跳ねる（数字はオレンジ）。
+    // 吹き出しの線と文字には、強めのインクのかすれ
+    if (fx.chainText && bubble.b) {
       const t = fx.chainText.t;
-      const press = t < 110 ? 1.7 - 0.7 * (1 - Math.pow(1 - t / 110, 3)) : 1;      // 上から押しつける
       const alpha = t < 1000 ? 1 : Math.max(0, 1 - (t - 1000) / 300);
-      const size = Math.round(Math.min(46, 30 + fx.chainText.n * 3) * DPR);
-      const label = `${fx.chainText.n}れんさ`;
-      for (const [ink, ox] of [[ORANGE, 3], [BLUE, 0]]) {
+      const size = Math.round(Math.min(42, 28 + fx.chainText.n * 3) * DPR);
+      // ポンと小さく出て、一瞬大きくふくらみ、もとの大きさに戻る
+      const sc = t < 90 ? 0.6 + 0.52 * (1 - Math.pow(1 - t / 90, 2)) : t < 200 ? 1.12 - 0.12 * ((t - 90) / 110) : 1;
+      const cx = BX, cy = BY - 5.6 * CS;                    // 盤面の上のほう（2匹にかからない場所）
+      const chars = [String(fx.chainText.n), "れ", "ん", "さ"];
+      const bx = bubble.b.getContext("2d"), ox = bubble.o.getContext("2d");
+      for (const x of [bx, ox]) { x.setTransform(1, 0, 0, 1, 0, 0); x.globalCompositeOperation = "source-over"; x.clearRect(0, 0, W, H); }
+      bx.font = ox.font = `${size}px "Dela Gothic One", sans-serif`;
+      const widths = chars.map((ch) => bx.measureText(ch).width);
+      const tw = widths.reduce((a, b) => a + b, 0);
+      const bw = tw + 0.9 * size, bh = 1.34 * size, r = bh / 2;
+      const tailW = 0.34 * size, tailH = 0.3 * size;
+      const shape = (x) => {                                 // 吹き出しの形（まる＋しっぽ）
+        roundRect(x, -bw / 2, -bh / 2, bw, bh, r);
+        x.moveTo(-tailW / 2, bh / 2 - 2); x.lineTo(0, bh / 2 + tailH); x.lineTo(tailW / 2, bh / 2 - 2); x.closePath();
+      };
+      // 吹き出しの中は、下に刷ってあるインクを抜いて紙の色に
+      for (const l of layers) {
+        l.x.save(); l.x.globalAlpha = alpha; l.x.globalCompositeOperation = "destination-out";
+        l.x.translate(cx, cy); l.x.scale(sc, sc); l.x.beginPath(); shape(l.x); l.x.fill(); l.x.restore();
+      }
+      // ブルーの線（しっぽのつけ根の線は消して、まるとしっぽを1本の線に見せる）
+      bx.save(); bx.translate(cx, cy); bx.scale(sc, sc);
+      bx.strokeStyle = INK[BLUE]; bx.lineWidth = 0.1 * size; bx.lineJoin = "round"; bx.lineCap = "round";
+      roundRect(bx, -bw / 2, -bh / 2, bw, bh, r); bx.stroke();
+      bx.globalCompositeOperation = "destination-out";
+      bx.fillRect(-tailW / 2 + 0.05 * size, bh / 2 - 0.1 * size, tailW - 0.1 * size, 0.2 * size);
+      bx.globalCompositeOperation = "source-over";
+      bx.beginPath(); bx.moveTo(-tailW / 2, bh / 2); bx.lineTo(0, bh / 2 + tailH); bx.lineTo(tailW / 2, bh / 2); bx.stroke();
+      // 文字：1文字ずつ、順番にぴょんぴょん跳ねる
+      let px = -tw / 2;
+      chars.forEach((ch, k) => {
+        const ph = ((t - k * 90) / 560) * Math.PI * 2;
+        const hop = t > k * 90 ? Math.max(0, Math.sin(ph)) * 0.28 * size : 0;
+        const x = k === 0 ? ox : bx;
+        if (k === 0) { ox.save(); ox.translate(cx, cy); ox.scale(sc, sc); }
+        x.fillStyle = INK[k === 0 ? ORANGE : BLUE];
+        x.textAlign = "left"; x.textBaseline = "middle";
+        x.fillText(ch, px, 0.04 * size - hop);
+        if (k === 0) ox.restore();
+        px += widths[k];
+      });
+      bx.restore();
+      // 強めのかすれを乗せて、版に刷る
+      const off = [Math.floor(fx.chainText.n * 37 % 60), Math.floor(fx.chainText.n * 53 % 60)];
+      for (const [c, ink] of [[bubble.b, BLUE], [bubble.o, ORANGE]]) {
+        const x = c.getContext("2d");
+        x.save(); x.globalCompositeOperation = "destination-in"; x.translate(-off[0], -off[1]);
+        x.fillStyle = x.createPattern(roughGrain, "repeat"); x.fillRect(0, 0, W + off[0], H + off[1]); x.restore();
         const L = layers[ink].x;
-        L.save();
-        L.globalAlpha = alpha;
-        L.translate(BX + ox * DPR, BY - 5.6 * CS + ox * 0.5 * DPR);            // 盤面の上のほう（2匹にかからない場所）
-        L.rotate(fx.chainText.rot);
-        L.scale(press, press);
-        L.font = `${size}px "Dela Gothic One", sans-serif`;
-        L.textAlign = "center"; L.textBaseline = "middle";
-        const w = L.measureText(label).width;
-        L.fillStyle = INK[ink]; L.strokeStyle = INK[ink];
-        L.lineWidth = 3 * DPR;
-        roundRect(L, -w / 2 - 0.4 * size, -0.72 * size, w + 0.8 * size, 1.44 * size, 0.25 * size);   // ゴム印のわく
-        L.stroke();
-        L.fillText(label, 0, 0.04 * size);
-        L.restore();
+        L.save(); L.globalAlpha = alpha; L.drawImage(c, 0, 0); L.restore();
       }
     }
 
@@ -1573,7 +1741,7 @@
     if (a === "left") { if (tryMove(-1, 0)) Sound.move(); }
     else if (a === "right") { if (tryMove(1, 0)) Sound.move(); }
     else if (a === "rotate") { rotate(1); Sound.rotate(); }
-    else if (a === "soft") { if (tryMove(0, 1)) { fallTimer = 0; score += 1; updateScore(); } }
+    else if (a === "soft") { if (tryMove(0, 1)) fallTimer = 0; }      // 少し落とす（点は入らない。スコアはブロックを消したときだけ増える）
     else if (a === "drop") hardDrop();
   }
 
